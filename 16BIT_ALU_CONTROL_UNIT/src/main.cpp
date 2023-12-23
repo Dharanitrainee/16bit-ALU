@@ -6,6 +6,18 @@
 #define SCK 22
 Adafruit_SH1106 display(SDA,SCK);
 
+void setupOLED();
+void displayMenuScreen();
+void display_A_ValueSelectscreen();
+void display_B_ValueSelectscreen();
+void wrireRegistersA(int DATA_A);
+void writeRegistersB(int DATA_B);
+void writeControlSignal(int data);
+void updateEncoder();
+void select_ISR();
+void encoder_ISR();
+void value_select_ISR();
+
 const unsigned char epd_bitmap__icon_AND [] PROGMEM = {
 	0x00, 0x00, 0x07, 0xc0, 0x18, 0x30, 0x20, 0x08, 0x40, 0x04, 0x41, 0x04, 0x82, 0x82, 0x84, 0x42, 
 	0x88, 0x22, 0x8f, 0xe2, 0x88, 0x22, 0x48, 0x24, 0x40, 0x04, 0x20, 0x08, 0x18, 0x30, 0x07, 0xc0
@@ -116,11 +128,15 @@ const unsigned int control_signals[NUM_ITEMS] = {
 
 #define outputA 15
 #define outputB 2
-#define select_sw 4
+#define select_sw 0
 
 #define clk 16
 #define dt 17
 #define sw 5
+
+#define LPIN 18
+#define CPIN 13
+#define RESET 34
 
 int item_selected = 0;
 int item_sel_previous;
@@ -132,29 +148,47 @@ int value_select_clicked = 0;
 
 volatile int lastEncoded = 0;
 volatile long encoderValue = 0;
+volatile long data_a = 0,data_b = 0;
 const int debounceDelay = 10;
 
 #define DATA_PIN  25 
 #define LATCH_PIN 26  
 #define CLOCK_PIN 27 
-#define CLEAR 14
+#define DATAB_PIN 18
 
-#define CONTROL_DATA_PIN 13
+#define CD_PIN 12
+#define CLATCH_PIN 14
+#define CCLOCK_PIN 4
 
-void writeRegisters(int data)
+
+void writeRegistersA(int DATA_A)
 {
   digitalWrite(LATCH_PIN,LOW);
-  shiftOut(DATA_PIN,CLOCK_PIN,MSBFIRST,data);
+  shiftOut(DATA_PIN,CLOCK_PIN,MSBFIRST,DATA_A);
   digitalWrite(LATCH_PIN, HIGH);
   digitalWrite(LATCH_PIN, LOW);
 }
 
+void writeRegisterB(int DATA_B)
+{
+  digitalWrite(CLATCH_PIN,LOW);
+  shiftOut(CD_PIN,CCLOCK_PIN,MSBFIRST,DATA_B);
+  digitalWrite(CLATCH_PIN, HIGH);
+  digitalWrite(CLATCH_PIN, LOW);
+}
+
 void writeControlSignal(int data)
 {
-  digitalWrite(LATCH_PIN,LOW);
-  shiftOut(CONTROL_DATA_PIN,CLOCK_PIN,MSBFIRST,data);
-  digitalWrite(LATCH_PIN, HIGH);
-  digitalWrite(LATCH_PIN, LOW);
+  digitalWrite(LPIN,LOW);
+  shiftOut(DATAB_PIN,CPIN,LSBFIRST,data);
+  digitalWrite(LPIN, HIGH);
+  digitalWrite(LPIN, LOW);
+
+}
+void reset()
+    {writeControlSignal(0);
+  writeRegistersA(0);
+  writeRegisterB(0);
 }
 
 void updateEncoder()
@@ -166,25 +200,24 @@ void updateEncoder()
   int LSB = digitalRead(outputB);
   int encoded = (MSB << 1) | LSB;
    int sum = (lastEncodedA << 3) | (lastEncodedB << 2) | (encoded << 1) | (encoded);
-    if(sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
+   if(millis() -lastDebounceTime > debounceDelay){
+    if((sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011) && current_screen == 0)
     {
       item_selected = item_selected-1;
       if(item_selected < 0){
       item_selected = NUM_ITEMS - 1;
     }
      }
-    else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
+    else if ((sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) && current_screen == 0) {
       item_selected = item_selected + 1;
       if(item_selected >= NUM_ITEMS){
         item_selected = 0;
       }
     }
-     if (millis() - lastDebounceTime > debounceDelay) {
-    lastDebounceTime = millis();
-  }
-
   lastEncodedA = MSB;
   lastEncodedB = LSB;
+  lastDebounceTime = millis();
+   }
   }
 
 
@@ -209,6 +242,7 @@ void encoder_ISR(){
   int LSB = digitalRead(dt);
   int encoded = (MSB << 1) | LSB;
    int sum = (lastEncodedA << 3) | (lastEncodedB << 2) | (encoded << 1) | (encoded);
+   if(millis() - lastDebounceTime>debounceDelay){
     if(sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
     {
       encoderValue++;
@@ -216,26 +250,124 @@ void encoder_ISR(){
     else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
       encoderValue--;
     }
-     if (millis() - lastDebounceTime > debounceDelay) {
     lastDebounceTime = millis();
-  }
+   }
 
   lastEncodedA = MSB;
   lastEncodedB = LSB;
   encoderValue = constrain(encoderValue, 0, 65535);
 }
 
-void value_select_ISR(){
-  if((digitalRead(sw)  == LOW) && (value_select_clicked == 0)){
-      value_select_clicked = 1;
-      if(current_screen == 1){current_screen = 2;digitalWrite(CLEAR, HIGH); writeRegisters(encoderValue);
-       digitalWrite(CLEAR,LOW);}
-      else if(current_screen == 2){current_screen = 3; digitalWrite(CLEAR,HIGH); writeRegisters(encoderValue);  digitalWrite(CLEAR,LOW);}
-      else{current_screen = 0; digitalWrite(CLEAR,HIGH);}
+void value_select_ISR() {
+  int swState = digitalRead(sw);
+
+  if (swState == LOW && value_select_clicked == 0) {
+    value_select_clicked = 1;
+
+    if (current_screen == 1) {
+      current_screen = 2;
+      data_a = encoderValue;
+      encoderValue = 0;
+    } else if (current_screen == 2) {
+      current_screen = 3;
+      data_b = encoderValue;
+      writeRegistersA(data_a);
+      writeRegisterB(data_b);
+    } else {
+      current_screen = 0;
+      encoderValue = 0;
     }
-    if(digitalRead(sw) == HIGH && (value_select_clicked == 1)){
-      value_select_clicked = 0;
-    }
+  }
+
+  if (swState == HIGH && value_select_clicked == 1) {
+    value_select_clicked = 0;
+  }
+}
+
+void displayWelcomeScreen()
+{
+  display.clearDisplay();
+  display.setCursor(45, 30);
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.print("WELCOME");
+  display.display();
+  delay(500);
+  display.clearDisplay();
+}
+
+void setupOLED()
+{
+  display.begin(SH1106_SWITCHCAPVCC, 0x3c);
+  delay(1000);
+  display.clearDisplay();
+  displayWelcomeScreen();
+} 
+
+void displayMenuScreen()
+{
+  if(current_screen == 0){
+  item_sel_previous = item_selected - 1;
+  if (item_sel_previous < 0) {item_sel_previous = NUM_ITEMS - 1;}
+  item_sel_next = item_selected + 1;  
+  if (item_sel_next >= NUM_ITEMS) {item_sel_next = 0;}
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+
+  display.setCursor(25,50);
+  display.print(menu_items[item_sel_previous]);
+  display.drawBitmap(4,46,epd_bitmap_allArray[item_sel_previous],16,16,1);
+
+  display.setCursor(25,10);
+  display.print(menu_items[item_selected]);   
+  display.drawBitmap(4,06,epd_bitmap_allArray[item_selected],16,16,1);
+
+  display.setCursor(25,30);
+  display.print(menu_items[item_sel_next]);
+  display.drawBitmap(4,26,epd_bitmap_allArray[item_sel_next],15,15,1);
+
+  display.drawBitmap(0,22,epd_bitmap__item_sel_outline,128,21,1);
+  display.drawBitmap(120,0,epd_bitmap__scrollbar_background,8,64,1);
+  display.display();
+  display.clearDisplay();
+  }
+}
+
+void display_A_ValueSelectscreen()
+{
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.drawBitmap(100,8,epd_bitmap_allArray[item_selected+1],16,16,1);
+  display.setCursor(30,20);
+  display.print("Select A");
+  display.setCursor(30,40);
+  display.print(encoderValue);
+  display.display();
+}
+
+void display_B_ValueSelectscreen()
+{
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.drawBitmap(100,8,epd_bitmap_allArray[item_selected+1],16,16,1);
+  display.setCursor(30,20);
+  display.print("Select B");
+  display.setCursor(30,40);
+  display.print(encoderValue);
+  display.display();
+}
+
+void displayResultScreen()
+{
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.drawBitmap(100,8,epd_bitmap_allArray[item_selected+1],16,16,1);
+  display.setCursor(30,30);
+  display.print("Result");
+  display.display();
 }
 
 void setup() {
@@ -249,7 +381,12 @@ void setup() {
   pinMode(clk, INPUT_PULLUP);
   pinMode(dt, INPUT_PULLUP);
   pinMode(sw, INPUT_PULLUP);
-  pinMode(CLEAR,OUTPUT);
+  pinMode(CD_PIN,OUTPUT);
+  pinMode(CLATCH_PIN,OUTPUT);
+  pinMode(CCLOCK_PIN,OUTPUT);
+  pinMode(LPIN,OUTPUT);
+  pinMode(CPIN,OUTPUT);
+  pinMode(RESET,INPUT_PULLDOWN);
 
   attachInterrupt(digitalPinToInterrupt(outputA), updateEncoder, CHANGE);
   attachInterrupt(digitalPinToInterrupt(outputB), updateEncoder, CHANGE);
@@ -258,77 +395,25 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(dt), encoder_ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(sw), value_select_ISR, CHANGE);
 
-
-  display.begin(SH1106_SWITCHCAPVCC, 0x3c);
-  delay(1000);
-  display.clearDisplay();
-  display.setCursor(45,30);
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.print("WELCOME");
-  display.display();
-  delay(500);
-  display.clearDisplay();
-  digitalWrite(CLEAR,HIGH);
+  setupOLED();
   }
  
 void loop() {
-    if(current_screen == 0){
-  item_sel_previous = item_selected - 1;
-if (item_sel_previous < 0) {item_sel_previous = NUM_ITEMS - 1;}
-item_sel_next = item_selected + 1;  
-if (item_sel_next >= NUM_ITEMS) {item_sel_next = 0;}
-display.setTextSize(1);
-display.setTextColor(WHITE);
-
-display.setCursor(25,50);
-display.print(menu_items[item_sel_previous]);
-display.drawBitmap(4,46,epd_bitmap_allArray[item_sel_previous],16,16,1);
-
-display.setCursor(25,10);
-display.print(menu_items[item_selected]);   
-display.drawBitmap(4,06,epd_bitmap_allArray[item_selected],16,16,1);
-
-display.setCursor(25,30);
-display.print(menu_items[item_sel_next]);
-display.drawBitmap(4,26,epd_bitmap_allArray[item_sel_next],15,15,1);
-
-display.drawBitmap(0,22,epd_bitmap__item_sel_outline,128,21,1);
-display.drawBitmap(120,0,epd_bitmap__scrollbar_background,8,64,1);
-display.display();
-display.clearDisplay();
-}
-else if(current_screen == 1)
-{
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.drawBitmap(100,8,epd_bitmap_allArray[item_selected+1],16,16,1);
-  display.setCursor(30,20);
-  display.print("Select A");
-  display.setCursor(30,40);
-  display.print(encoderValue);
-  display.display();
-}
-else if(current_screen == 2){
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.drawBitmap(100,8,epd_bitmap_allArray[item_selected+1],16,16,1);
-  display.setCursor(30,20);
-  display.print("Select B");
-  display.setCursor(30,40);
-  display.print(encoderValue);
-  display.display();
- }
-
-else if(current_screen == 3){
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.drawBitmap(100,8,epd_bitmap_allArray[item_selected+1],16,16,1);
-  display.setCursor(30,30);
-  display.print("Result");
-  display.display();
+switch(current_screen){
+  case 0:
+  displayMenuScreen();
+  reset();
+  break;
+  case 1:
+  display_A_ValueSelectscreen();
+  break;
+  case 2:
+  display_B_ValueSelectscreen();
+  break;
+  case 3:
+  displayResultScreen();
+  break;
+  default:
+  displayMenuScreen();
 }
 }
