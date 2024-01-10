@@ -10,8 +10,8 @@ void setupOLED();
 void displayMenuScreen();
 void display_A_ValueSelectscreen();
 void display_B_ValueSelectscreen();
-void wrireRegistersA(int DATA_A);
-void writeRegistersB(int DATA_B);
+void writeRegistersA(int DATA_A);
+void writeRegisterB(int DATA_B);
 void writeControlSignal(int data);
 void updateEncoder();
 void select_ISR();
@@ -114,16 +114,24 @@ char menu_items[NUM_ITEMS] [20] = {
   {"XOR"}
 };
 
+const int AND_SIGNAL = 7;
+const int ADDITION_SIGNAL = 0;
+const int SUBTRACTION_SIGNAL = 3;
+const int INVERT_A_SIGNAL = 31;
+const int INCREMENT_A_SIGNAL = 2;
+const int DECREMENT_A_SIGNAL = 3;
+const int OR_SIGNAL = 12;
+const int XOR_SIGNAL = 23;
 
 const unsigned int control_signals[NUM_ITEMS] = {
-  7,
-  0,
-  3,
-  31,
-  2,
-  3,
-  12,
-  23
+  AND_SIGNAL,
+  ADDITION_SIGNAL,
+  SUBTRACTION_SIGNAL,
+  INVERT_A_SIGNAL,
+  INCREMENT_A_SIGNAL,
+  DECREMENT_A_SIGNAL,
+  OR_SIGNAL,
+  XOR_SIGNAL
 };
 
 #define outputA 15
@@ -134,9 +142,6 @@ const unsigned int control_signals[NUM_ITEMS] = {
 #define dt 17
 #define sw 5
 
-#define LPIN 18
-#define CPIN 13
-#define RESET 34
 
 int item_selected = 0;
 int item_sel_previous;
@@ -154,9 +159,9 @@ const int debounceDelay = 10;
 #define DATA_PIN  25 
 #define LATCH_PIN 26  
 #define CLOCK_PIN 27 
-#define DATAB_PIN 18
+#define DATAB_PIN 12
 
-#define CD_PIN 12
+#define CD_PIN 32
 #define CLATCH_PIN 14
 #define CCLOCK_PIN 4
 
@@ -172,17 +177,17 @@ void writeRegistersA(int DATA_A)
 void writeRegisterB(int DATA_B)
 {
   digitalWrite(CLATCH_PIN,LOW);
-  shiftOut(CD_PIN,CCLOCK_PIN,MSBFIRST,DATA_B);
+  shiftOut(DATAB_PIN,CCLOCK_PIN,MSBFIRST,DATA_B);
   digitalWrite(CLATCH_PIN, HIGH);
   digitalWrite(CLATCH_PIN, LOW);
 }
 
 void writeControlSignal(int data)
 {
-  digitalWrite(LPIN,LOW);
-  shiftOut(DATAB_PIN,CPIN,LSBFIRST,data);
-  digitalWrite(LPIN, HIGH);
-  digitalWrite(LPIN, LOW);
+  digitalWrite(CLATCH_PIN,LOW);
+  shiftOut(CD_PIN,CCLOCK_PIN,MSBFIRST,data);
+  digitalWrite(CLATCH_PIN, HIGH);
+  digitalWrite(CLATCH_PIN, LOW);
 
 }
 void reset()
@@ -225,7 +230,7 @@ void select_ISR()
 {
    if((digitalRead(select_sw)  == LOW) && (button_select_clicked == 0)){
       button_select_clicked = 1;
-      if(current_screen == 0){current_screen = 1; writeControlSignal(control_signals[item_selected+1]);}
+      if(current_screen == 0){current_screen = 1;}
       else if(current_screen == 1){current_screen = 0;}
       else{current_screen = 0;}
     }
@@ -271,8 +276,10 @@ void value_select_ISR() {
     } else if (current_screen == 2) {
       current_screen = 3;
       data_b = encoderValue;
+      encoderValue = 0;
       writeRegistersA(data_a);
       writeRegisterB(data_b);
+      writeControlSignal(control_signals[item_selected+1]);
     } else {
       current_screen = 0;
       encoderValue = 0;
@@ -384,9 +391,7 @@ void setup() {
   pinMode(CD_PIN,OUTPUT);
   pinMode(CLATCH_PIN,OUTPUT);
   pinMode(CCLOCK_PIN,OUTPUT);
-  pinMode(LPIN,OUTPUT);
-  pinMode(CPIN,OUTPUT);
-  pinMode(RESET,INPUT_PULLDOWN);
+  pinMode(DATAB_PIN,OUTPUT);
 
   attachInterrupt(digitalPinToInterrupt(outputA), updateEncoder, CHANGE);
   attachInterrupt(digitalPinToInterrupt(outputB), updateEncoder, CHANGE);
@@ -413,7 +418,5 @@ switch(current_screen){
   case 3:
   displayResultScreen();
   break;
-  default:
-  displayMenuScreen();
 }
 }
