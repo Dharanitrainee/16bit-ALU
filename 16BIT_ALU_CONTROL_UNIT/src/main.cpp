@@ -11,8 +11,7 @@ void displayMenuScreen();
 void display_A_ValueSelectscreen();
 void display_B_ValueSelectscreen();
 void writeRegistersA(int DATA_A);
-void writeRegisterB(int DATA_B);
-void writeControlSignal(int data);
+void writeRegistersAndControl(int DATA_B, int controlSignal);
 void updateEncoder();
 void select_ISR();
 void encoder_ISR();
@@ -174,26 +173,17 @@ void writeRegistersA(int DATA_A)
   digitalWrite(LATCH_PIN, LOW);
 }
 
-void writeRegisterB(int DATA_B)
-{
-  digitalWrite(CLATCH_PIN,LOW);
-  shiftOut(DATAB_PIN,CCLOCK_PIN,MSBFIRST,DATA_B);
+void writeRegistersAndControl(int DATA_B, int controlSignal) {
+  digitalWrite(CLATCH_PIN, LOW);
+  shiftOut(DATAB_PIN, CCLOCK_PIN, LSBFIRST, DATA_B);
+  shiftOut(CD_PIN, CCLOCK_PIN, MSBFIRST, controlSignal);
   digitalWrite(CLATCH_PIN, HIGH);
   digitalWrite(CLATCH_PIN, LOW);
 }
 
-void writeControlSignal(int data)
-{
-  digitalWrite(CLATCH_PIN,LOW);
-  shiftOut(CD_PIN,CCLOCK_PIN,MSBFIRST,data);
-  digitalWrite(CLATCH_PIN, HIGH);
-  digitalWrite(CLATCH_PIN, LOW);
-
-}
 void reset()
-    {writeControlSignal(0);
+    {writeRegistersAndControl(0,0);
   writeRegistersA(0);
-  writeRegisterB(0);
 }
 
 void updateEncoder()
@@ -278,8 +268,7 @@ void value_select_ISR() {
       data_b = encoderValue;
       encoderValue = 0;
       writeRegistersA(data_a);
-      writeRegisterB(data_b);
-      writeControlSignal(control_signals[item_selected+1]);
+      writeRegistersAndControl(data_b,control_signals[item_selected+1]);
     } else {
       current_screen = 0;
       encoderValue = 0;
