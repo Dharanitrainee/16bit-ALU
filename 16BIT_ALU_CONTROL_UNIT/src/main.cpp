@@ -16,6 +16,7 @@ void updateEncoder();
 void select_ISR();
 void encoder_ISR();
 void value_select_ISR();
+void check_rotary();
 
 const unsigned char epd_bitmap__icon_AND [] PROGMEM = {
 	0x00, 0x00, 0x07, 0xc0, 0x18, 0x30, 0x20, 0x08, 0x40, 0x04, 0x41, 0x04, 0x82, 0x82, 0x84, 0x42, 
@@ -133,36 +134,45 @@ const unsigned int control_signals[NUM_ITEMS] = {
   XOR_SIGNAL
 };
 
-#define outputA 15
+//Menu encoder pins
+#define outputA 15 
 #define outputB 2
 #define select_sw 0
 
+//Value select encoder pins
 #define clk 16
 #define dt 17
 #define sw 5
+
+//Data shift register pins
+#define DATA_PIN  25 
+#define LATCH_PIN 26  
+#define CLOCK_PIN 27 
+#define DATAB_PIN 12
+
+//controlbits shift register pins
+#define CD_PIN 32
+#define CLATCH_PIN 14
+#define CCLOCK_PIN 4
 
 
 int item_selected = 0;
 int item_sel_previous;
 int item_sel_next;
 
-int current_screen = 0;
+volatile int current_screen = 0;
 int button_select_clicked = 0;
 int value_select_clicked = 0;
 
-volatile int lastEncoded = 0;
-volatile long encoderValue = 0;
+volatile int encoderValue;
 volatile long data_a = 0,data_b = 0;
-const int debounceDelay = 10;
 
-#define DATA_PIN  25 
-#define LATCH_PIN 26  
-#define CLOCK_PIN 27 
-#define DATAB_PIN 12
+int PreviousCLK;
+int PreviousDATA;
 
-#define CD_PIN 32
-#define CLATCH_PIN 14
-#define CCLOCK_PIN 4
+
+long TimeofLastDebounce = 0;
+int debounceDelay = 10;
 
 
 void writeRegistersA(int DATA_A)
@@ -184,6 +194,46 @@ void writeRegistersAndControl(int DATA_B, int controlSignal) {
 void reset()
     {writeRegistersAndControl(0,0);
   writeRegistersA(0);
+}
+
+void check_rotary(){
+  if((PreviousCLK == 0) && (PreviousDATA == 1))
+  {
+    if((digitalRead(clk) == 1) && (digitalRead(dt) == 0)){
+      encoderValue++;
+    }
+    if((digitalRead(clk) == 1) && (digitalRead(dt) == 1)){
+      encoderValue--;
+    }
+  }
+  if((PreviousCLK == 1) && (PreviousDATA == 0))
+  {
+    if((digitalRead(clk) == 0) && (digitalRead(dt) == 1)){
+      encoderValue++;
+    }
+    if((digitalRead(clk) == 0) && (digitalRead(dt) == 0)){
+      encoderValue--;
+    }
+  }
+  if((PreviousCLK == 1) && (PreviousDATA == 1))
+  {
+    if((digitalRead(clk) == 0) && (digitalRead(dt) == 1)){
+      encoderValue++;
+    }
+    if((digitalRead(clk) == 0) && (digitalRead(dt) == 0)){
+      encoderValue--;
+    }
+  }
+  if((PreviousCLK == 0) && (PreviousDATA == 0))
+  {
+    if((digitalRead(clk) == 1) && (digitalRead(dt) == 0)){
+      encoderValue++;
+    }
+    if((digitalRead(clk) == 1) && (digitalRead(dt) == 1)){
+      encoderValue--;
+    }
+  }
+  encoderValue = constrain(encoderValue, 0, 65535);
 }
 
 void updateEncoder()
@@ -230,28 +280,15 @@ void select_ISR()
 }
 
 void encoder_ISR(){
-  static unsigned long lastDebounceTime = 0;
-  static int lastEncodedA = 0;
-  static int lastEncodedB = 0;
-  int MSB = digitalRead(clk);
-  int LSB = digitalRead(dt);
-  int encoded = (MSB << 1) | LSB;
-   int sum = (lastEncodedA << 3) | (lastEncodedB << 2) | (encoded << 1) | (encoded);
-   if(millis() - lastDebounceTime>debounceDelay){
-    if(sum == 0b1101 || sum == 0b0100 || sum == 0b0010 || sum == 0b1011)
-    {
-      encoderValue++;
-     }
-    else if (sum == 0b1110 || sum == 0b0111 || sum == 0b0001 || sum == 0b1000) {
-      encoderValue--;
-    }
-    lastDebounceTime = millis();
-   }
-
-  lastEncodedA = MSB;
-  lastEncodedB = LSB;
-  encoderValue = constrain(encoderValue, 0, 65535);
+  if((millis() - TimeofLastDebounce) > debounceDelay){
+    check_rotary();
+  }
+  PreviousCLK = digitalRead(clk);
+  PreviousDATA = digitalRead(dt);
+  TimeofLastDebounce = millis();
 }
+
+
 
 void value_select_ISR() {
   int swState = digitalRead(sw);
@@ -265,8 +302,14 @@ void value_select_ISR() {
       encoderValue = 0;
     } else if (current_screen == 2) {
       current_screen = 3;
-      data_b = encoderValue;
-      encoderValue = 0;
+      if(control_signals[item_selected+1] == INCREMENT_A_SIGNAL){
+      data_b = 0;
+      }
+      else if(control_signals[item_selected+1] == DECREMENT_A_SIGNAL){
+      data_b = 1;
+      }
+      else{
+      data_b = encoderValue;}
       writeRegistersA(data_a);
       writeRegistersAndControl(data_b,control_signals[item_selected+1]);
     } else {
@@ -279,6 +322,7 @@ void value_select_ISR() {
     value_select_clicked = 0;
   }
 }
+
 
 void displayWelcomeScreen()
 {
@@ -390,6 +434,9 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(sw), value_select_ISR, CHANGE);
 
   setupOLED();
+
+  PreviousCLK = digitalRead(clk);
+  PreviousDATA = digitalRead(dt);
   }
  
 void loop() {
