@@ -2,6 +2,10 @@
 
 <p>This project implements a 16-bit Arithmetic Logic Unit (ALU) using TTL (74 series) digital integrated circuits. The control unit is built using an ESP32 microcontroller, enhancing functionality with a user-friendly interface via an OLED display and a rotary encoder for selecting operations.</p>
 
+<blockquote>
+  <strong>Disclaimer</strong>: This is my first PCB design, and there may be flaws.This may be the worls worst ALU!. Any feedback or suggestions for improvement are welcome.
+</blockquote>
+
 <h2>Features</h2>
 
 <ul>
@@ -25,14 +29,14 @@
 
 <ul>
   <li><code>main_code.ino</code>: The primary Arduino code for the ESP32, managing the control signals, encoder input, OLED output, and ALU operations.</li>
-  <li><code>images</code>: Contains bitmaps for icons representing each operation.</li>
+  <li><code>images/</code>: Contains bitmaps for icons representing each operation.</li>
   <li><code>README.md</code>: Project documentation.</li>
 </ul>
 
 <h2>How It Works</h2>
 
 <ol>
-  <li><strong>Control Unit</strong>: ESP32 generates control signals based on user input from the rotary encoder. The OLED screen displays the current operation, input values, and results.</li>
+  <li><strong>Control Unit</strong>: The ESP32 microcontroller generates control signals based on user input from the rotary encoder. The OLED screen displays the current operation, input values, and results.</li>
   <li><strong>ALU Operations</strong>: The ALU performs selected operations on 16-bit data, interfaced via shift registers.</li>
   <li><strong>Result Display</strong>: The result of the operation is shown on the OLED display.</li>
 </ol>
